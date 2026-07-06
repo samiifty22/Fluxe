@@ -1,11 +1,20 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
+
 // ── TikTok Ads API ────────────────────────────────────────────────────────────
 const BASE = "https://business-api.tiktok.com/open_api/v1.3";
 
-async function tiktokPost(endpoint, body) {
+async function creds() {
+  const session = await getServerSession(authOptions);
+  return resolveCredentials(session?.user?.tenantId, "tiktok");
+}
+
+async function tiktokPost(endpoint, body, accessToken) {
   const res = await fetch(`${BASE}${endpoint}`, {
     method: "POST",
     headers: {
-      "Access-Token": process.env.TIKTOK_ACCESS_TOKEN,
+      "Access-Token": accessToken,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -18,12 +27,12 @@ async function tiktokPost(endpoint, body) {
 export async function POST(req) {
   try {
     const { campaign } = await req.json();
-    const advertiserId = process.env.TIKTOK_ADVERTISER_ID;
+    const { accessToken, advertiserId } = await creds();
 
-    if (!process.env.TIKTOK_ACCESS_TOKEN || !advertiserId) {
+    if (!accessToken || !advertiserId) {
       return Response.json({
         success: true,
-        source: "Simulated (add TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID to go live)",
+        source: "Simulated (add TikTok credentials in Settings to go live)",
         result: {
           campaignId: `sim_tt_camp_${Date.now()}`,
           adGroupId: `sim_tt_adgroup_${Date.now()}`,
@@ -41,7 +50,7 @@ export async function POST(req) {
       objective_type: "PRODUCT_SALES",
       budget_mode: "BUDGET_MODE_INFINITE",
       operation_status: "DISABLE", // start disabled for safety
-    });
+    }, accessToken);
 
     // Step 2 — Create Ad Group
     const adGroupData = await tiktokPost("/adgroup/create/", {
@@ -62,7 +71,7 @@ export async function POST(req) {
         languages: ["en"],
       },
       operation_status: "DISABLE",
-    });
+    }, accessToken);
 
     return Response.json({
       success: true,
@@ -81,12 +90,13 @@ export async function POST(req) {
 
 export async function GET() {
   try {
-    if (!process.env.TIKTOK_ACCESS_TOKEN) {
+    const { accessToken, advertiserId } = await creds();
+    if (!accessToken) {
       return Response.json({ campaigns: MOCK_TT, source: "Mock" });
     }
     const res = await fetch(
-      `${BASE}/campaign/get/?advertiser_id=${process.env.TIKTOK_ADVERTISER_ID}&fields=["campaign_id","campaign_name","operation_status","budget"]`,
-      { headers: { "Access-Token": process.env.TIKTOK_ACCESS_TOKEN } }
+      `${BASE}/campaign/get/?advertiser_id=${advertiserId}&fields=["campaign_id","campaign_name","operation_status","budget"]`,
+      { headers: { "Access-Token": accessToken } }
     );
     const data = await res.json();
     return Response.json({ campaigns: data.data?.list ?? [], source: "TikTok (Live)" });

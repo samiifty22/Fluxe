@@ -1,10 +1,19 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
+
 // ── Analytics — Meta Insights + TikTok Analytics ─────────────────────────────
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const range = searchParams.get("range") ?? "7d";
+  const session = await getServerSession(authOptions);
+  const [metaCreds, tiktokCreds] = await Promise.all([
+    resolveCredentials(session?.user?.tenantId, "meta"),
+    resolveCredentials(session?.user?.tenantId, "tiktok"),
+  ]);
 
-  const metaData   = await fetchMeta(range);
-  const tiktokData = await fetchTikTok(range);
+  const metaData   = await fetchMeta(range, metaCreds);
+  const tiktokData = await fetchTikTok(range, tiktokCreds);
 
   // Merge into unified analytics
   const totalSpend   = metaData.spend   + tiktokData.spend;
@@ -21,13 +30,12 @@ export async function GET(req) {
   });
 }
 
-async function fetchMeta(range) {
-  if (!process.env.META_ACCESS_TOKEN) return { ...MOCK_META, daily: mockDaily(MOCK_META.spend, MOCK_META.revenue), source: "Mock (add META_ACCESS_TOKEN)" };
+async function fetchMeta(range, { accessToken, adAccountId } = {}) {
+  if (!accessToken) return { ...MOCK_META, daily: mockDaily(MOCK_META.spend, MOCK_META.revenue), source: "Mock (add Meta credentials in Settings)" };
   try {
-    const adAccountId = process.env.META_AD_ACCOUNT_ID;
     const datePreset  = range === "7d" ? "last_7d" : range === "30d" ? "last_30d" : "last_7d";
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${adAccountId}/insights?fields=spend,actions,ctr&time_increment=1&date_preset=${datePreset}&access_token=${process.env.META_ACCESS_TOKEN}`
+      `https://graph.facebook.com/v19.0/${adAccountId}/insights?fields=spend,actions,ctr&time_increment=1&date_preset=${datePreset}&access_token=${accessToken}`
     );
     const data = await res.json();
     const rows = data.data ?? [];
@@ -45,14 +53,14 @@ async function fetchMeta(range) {
   }
 }
 
-async function fetchTikTok(range) {
-  if (!process.env.TIKTOK_ACCESS_TOKEN) return { ...MOCK_TT, daily: mockDaily(MOCK_TT.spend, MOCK_TT.revenue), source: "Mock (add TIKTOK_ACCESS_TOKEN)" };
+async function fetchTikTok(range, { accessToken, advertiserId } = {}) {
+  if (!accessToken) return { ...MOCK_TT, daily: mockDaily(MOCK_TT.spend, MOCK_TT.revenue), source: "Mock (add TikTok credentials in Settings)" };
   try {
     const end   = new Date().toISOString().split("T")[0];
     const start = new Date(Date.now() - (range === "7d" ? 7 : 30) * 86400000).toISOString().split("T")[0];
     const res   = await fetch(
-      `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${process.env.TIKTOK_ADVERTISER_ID}&report_type=BASIC&data_level=AUCTION_ADVERTISER&dimensions=["stat_time_day"]&metrics=["spend","total_purchase_value","total_complete_purchase_count","ctr"]&start_date=${start}&end_date=${end}&page_size=30`,
-      { headers: { "Access-Token": process.env.TIKTOK_ACCESS_TOKEN } }
+      `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_ADVERTISER&dimensions=["stat_time_day"]&metrics=["spend","total_purchase_value","total_complete_purchase_count","ctr"]&start_date=${start}&end_date=${end}&page_size=30`,
+      { headers: { "Access-Token": accessToken } }
     );
     const data = await res.json();
     const rows = data.data?.list ?? [];

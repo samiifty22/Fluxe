@@ -1,13 +1,23 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
+
 // ── ShipBob Fulfillment API ───────────────────────────────────────────────────
 const SB_BASE    = "https://api.shipbob.com/1_0";
-const SB_HEADERS = () => ({ Authorization: `Bearer ${process.env.SHIPBOB_TOKEN}`, "Content-Type": "application/json" });
+const SB_HEADERS = (token) => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
+
+async function creds() {
+  const session = await getServerSession(authOptions);
+  return resolveCredentials(session?.user?.tenantId, "shipbob");
+}
 
 export async function GET() {
   try {
-    if (!process.env.SHIPBOB_TOKEN) {
-      return Response.json({ orders: MOCK_ORDERS, stats: MOCK_STATS, source: "Mock (add SHIPBOB_TOKEN)" });
+    const { token } = await creds();
+    if (!token) {
+      return Response.json({ orders: MOCK_ORDERS, stats: MOCK_STATS, source: "Mock (add ShipBob credentials in Settings)" });
     }
-    const res    = await fetch(`${SB_BASE}/order?Page=1&Limit=20&SortOrder=Newest`, { headers: SB_HEADERS() });
+    const res    = await fetch(`${SB_BASE}/order?Page=1&Limit=20&SortOrder=Newest`, { headers: SB_HEADERS(token) });
     const data   = await res.json();
     const orders = (data ?? []).map(o => ({
       id:      `#${o.order_number}`,
@@ -34,10 +44,11 @@ export async function GET() {
 export async function POST(req) {
   try {
     const { order } = await req.json();
-    if (!process.env.SHIPBOB_TOKEN) {
+    const { token } = await creds();
+    if (!token) {
       return Response.json({ success: true, orderId: `mock_${Date.now()}`, source: "Simulated" });
     }
-    const res  = await fetch(`${SB_BASE}/order`, { method: "POST", headers: SB_HEADERS(), body: JSON.stringify(order) });
+    const res  = await fetch(`${SB_BASE}/order`, { method: "POST", headers: SB_HEADERS(token), body: JSON.stringify(order) });
     const data = await res.json();
     return Response.json({ success: true, orderId: data.id, source: "ShipBob (Live)" });
   } catch (e) {

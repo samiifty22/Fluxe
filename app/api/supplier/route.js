@@ -1,12 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
 
 // ── Real CJ Dropshipping API ──────────────────────────────────────────────────
-async function searchCJ(keyword) {
+async function searchCJ(keyword, email, apiKey) {
   // Step 1: Get CJ access token
   const authRes = await fetch("https://developers.cjdropshipping.com/api2.0/v1/authentication/getAccessToken", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: process.env.CJ_EMAIL, password: process.env.CJ_API_KEY }),
+    body: JSON.stringify({ email, password: apiKey }),
   });
   const auth = await authRes.json();
   if (!auth.data?.accessToken) throw new Error("CJ auth failed");
@@ -46,8 +49,8 @@ function parseAIJson(raw) {
 }
 
 // ── Claude Fallback ──────────────────────────────────────────────────────────
-async function searchWithClaude(keyword) {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function searchWithClaude(keyword, apiKey) {
+  const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: "claude-opus-4-8",
     max_tokens: 2048,
@@ -67,19 +70,27 @@ Make prices realistic (sourcing $5–20). Include 2 US warehouse and 2 factory s
 export async function POST(req) {
   try {
     const { keyword } = await req.json();
+    const session = await getServerSession(authOptions);
+    const [{ apiKey: cjApiKey, email: cjEmail }, { apiKey: anthropicKey }] = await Promise.all([
+      resolveCredentials(session?.user?.tenantId, "cj"),
+      resolveCredentials(session?.user?.tenantId, "anthropic"),
+    ]);
     let suppliers, source;
 
-    if (process.env.CJ_API_KEY && process.env.CJ_EMAIL) {
+    if (cjApiKey && cjEmail) {
       try {
-        suppliers = await searchCJ(keyword);
+        suppliers = await searchCJ(keyword, cjEmail, cjApiKey);
         source = "CJ Dropshipping (Live)";
       } catch (e) {
-        suppliers = await searchWithClaude(keyword);
-        source = "AI Generated (add CJ_API_KEY for live data)";
+        if (!anthropicKey) throw e;
+        suppliers = await searchWithClaude(keyword, anthropicKey);
+        source = "AI Generated (add CJ credentials in Settings for live data)";
       }
+    } else if (anthropicKey) {
+      suppliers = await searchWithClaude(keyword, anthropicKey);
+      source = "AI Generated (add CJ credentials in Settings for live data)";
     } else {
-      suppliers = await searchWithClaude(keyword);
-      source = "AI Generated (add CJ_API_KEY for live data)";
+      return Response.json({ error: "Add your Anthropic or CJ Dropshipping credentials in Settings to search suppliers." }, { status: 500 });
     }
 
     return Response.json({ suppliers, source });

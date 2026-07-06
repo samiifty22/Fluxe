@@ -1,11 +1,20 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
+
 // ── Meta Marketing API ────────────────────────────────────────────────────────
 const BASE = "https://graph.facebook.com/v19.0";
 
-async function metaPost(endpoint, body) {
+async function creds() {
+  const session = await getServerSession(authOptions);
+  return resolveCredentials(session?.user?.tenantId, "meta");
+}
+
+async function metaPost(endpoint, body, accessToken) {
   const res = await fetch(`${BASE}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, access_token: process.env.META_ACCESS_TOKEN }),
+    body: JSON.stringify({ ...body, access_token: accessToken }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
@@ -15,12 +24,12 @@ async function metaPost(endpoint, body) {
 export async function POST(req) {
   try {
     const { campaign } = await req.json();
-    const adAccountId = process.env.META_AD_ACCOUNT_ID;
+    const { accessToken, adAccountId, pageId } = await creds();
 
-    if (!process.env.META_ACCESS_TOKEN || !adAccountId) {
+    if (!accessToken || !adAccountId) {
       return Response.json({
         success: true,
-        source: "Simulated (add META_ACCESS_TOKEN + META_AD_ACCOUNT_ID to go live)",
+        source: "Simulated (add Meta credentials in Settings to go live)",
         result: {
           campaignId: `sim_camp_${Date.now()}`,
           adSetId: `sim_adset_${Date.now()}`,
@@ -37,7 +46,7 @@ export async function POST(req) {
       objective: "OUTCOME_SALES",
       status: "PAUSED", // start paused for safety
       special_ad_categories: [],
-    });
+    }, accessToken);
 
     // Step 2 — Create Ad Set
     const adSetRes = await metaPost(`/${adAccountId}/adsets`, {
@@ -54,14 +63,14 @@ export async function POST(req) {
         facebook_positions: ["feed", "instagram_stream"],
       },
       status: "PAUSED",
-    });
+    }, accessToken);
 
     // Step 3 — Create Ad Creative + Ad (first copy only for now)
     const adCopy = campaign.meta.adCopies?.[0];
     const creativeRes = await metaPost(`/${adAccountId}/adcreatives`, {
       name: `${campaign.campaignName} - Creative 1`,
       object_story_spec: {
-        page_id: process.env.META_PAGE_ID,
+        page_id: pageId,
         link_data: {
           message: adCopy?.primaryText ?? "",
           link: process.env.NEXT_PUBLIC_APP_URL ?? "https://example.com",
@@ -70,14 +79,14 @@ export async function POST(req) {
           call_to_action: { type: "SHOP_NOW" },
         },
       },
-    });
+    }, accessToken);
 
     const adRes = await metaPost(`/${adAccountId}/ads`, {
       name: `${campaign.campaignName} - Ad 1`,
       adset_id: adSetRes.id,
       creative: { creative_id: creativeRes.id },
       status: "PAUSED",
-    });
+    }, accessToken);
 
     return Response.json({
       success: true,
@@ -98,12 +107,12 @@ export async function POST(req) {
 // GET → fetch campaign performance
 export async function GET() {
   try {
-    if (!process.env.META_ACCESS_TOKEN) {
+    const { accessToken, adAccountId } = await creds();
+    if (!accessToken || !adAccountId) {
       return Response.json({ campaigns: MOCK_META_CAMPAIGNS, source: "Mock" });
     }
-    const adAccountId = process.env.META_AD_ACCOUNT_ID;
     const res = await fetch(
-      `${BASE}/${adAccountId}/campaigns?fields=id,name,status,insights{spend,cpm,ctr,actions}&access_token=${process.env.META_ACCESS_TOKEN}`
+      `${BASE}/${adAccountId}/campaigns?fields=id,name,status,insights{spend,cpm,ctr,actions}&access_token=${accessToken}`
     );
     const data = await res.json();
     return Response.json({ campaigns: data.data ?? [], source: "Meta (Live)" });

@@ -1,17 +1,27 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
+
 // ── Shopify Store Manager API ─────────────────────────────────────────────────
-const SHOPIFY_URL = () => `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-01`;
-const SHOPIFY_HEADERS = () => ({
-  "X-Shopify-Access-Token": process.env.SHOPIFY_ACCESS_TOKEN,
+const SHOPIFY_URL = (storeDomain) => `https://${storeDomain}/admin/api/2024-01`;
+const SHOPIFY_HEADERS = (accessToken) => ({
+  "X-Shopify-Access-Token": accessToken,
   "Content-Type": "application/json",
 });
+
+async function creds() {
+  const session = await getServerSession(authOptions);
+  return resolveCredentials(session?.user?.tenantId, "shopify");
+}
 
 // GET → list all products
 export async function GET() {
   try {
-    if (!process.env.SHOPIFY_ACCESS_TOKEN) {
-      return Response.json({ products: MOCK_PRODUCTS, source: "Mock (add SHOPIFY_ACCESS_TOKEN)" });
+    const { accessToken, storeDomain } = await creds();
+    if (!accessToken || !storeDomain) {
+      return Response.json({ products: MOCK_PRODUCTS, source: "Mock (add Shopify credentials in Settings)" });
     }
-    const res = await fetch(`${SHOPIFY_URL()}/products.json?limit=50`, { headers: SHOPIFY_HEADERS() });
+    const res = await fetch(`${SHOPIFY_URL(storeDomain)}/products.json?limit=50`, { headers: SHOPIFY_HEADERS(accessToken) });
     const data = await res.json();
     const products = (data.products ?? []).map(p => ({
       id: p.id,
@@ -33,12 +43,13 @@ export async function GET() {
 export async function POST(req) {
   try {
     const { name, description, price, comparePrice, images, variants, tags } = await req.json();
+    const { accessToken, storeDomain } = await creds();
 
-    if (!process.env.SHOPIFY_ACCESS_TOKEN) {
+    if (!accessToken || !storeDomain) {
       // Simulate success in dev mode
       return Response.json({
         product: { id: `mock_${Date.now()}`, name, price, status: "active", handle: name.toLowerCase().replace(/\s+/g, "-") },
-        source: "Simulated (add SHOPIFY_ACCESS_TOKEN to go live)",
+        source: "Simulated (add Shopify credentials in Settings to go live)",
       });
     }
 
@@ -53,9 +64,9 @@ export async function POST(req) {
       },
     };
 
-    const res = await fetch(`${SHOPIFY_URL()}/products.json`, {
+    const res = await fetch(`${SHOPIFY_URL(storeDomain)}/products.json`, {
       method: "POST",
-      headers: SHOPIFY_HEADERS(),
+      headers: SHOPIFY_HEADERS(accessToken),
       body: JSON.stringify(body),
     });
     const data = await res.json();

@@ -1,10 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { resolveCredentials } from "@/lib/integrations";
 
 export async function POST(req) {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) return Response.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
+    const session = await getServerSession(authOptions);
+    const { apiKey } = await resolveCredentials(session?.user?.tenantId, "anthropic");
+    if (!apiKey) return Response.json({ error: "ANTHROPIC_API_KEY not configured — add your Claude key in Settings" }, { status: 500 });
+
+    const client = new Anthropic({ apiKey });
     const { prompt, system } = await req.json();
     const msg = await client.messages.create({
       model: "claude-opus-4-8",

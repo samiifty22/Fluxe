@@ -921,45 +921,73 @@ function Finance({goal}){
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 function Settings(){
-  const KEYS=[
-    {k:"ANTHROPIC_API_KEY",l:"Anthropic API Key",hint:"sk-ant-xxxx",st:"required",docs:"console.anthropic.com"},
-    {k:"META_ACCESS_TOKEN",l:"Meta Access Token",hint:"EAAxxxxxxx",st:"meta",docs:"developers.facebook.com"},
-    {k:"META_AD_ACCOUNT_ID",l:"Meta Ad Account ID",hint:"act_123456789",st:"meta",docs:"business.facebook.com"},
-    {k:"TIKTOK_ACCESS_TOKEN",l:"TikTok Access Token",hint:"xxxxxxxxxx",st:"tiktok",docs:"ads.tiktok.com/marketing_api"},
-    {k:"TIKTOK_ADVERTISER_ID",l:"TikTok Advertiser ID",hint:"1234567890",st:"tiktok",docs:"ads.tiktok.com"},
-    {k:"SHOPIFY_ACCESS_TOKEN",l:"Shopify Access Token",hint:"shpat_xxxxx",st:"shopify",docs:"shopify.dev"},
-    {k:"SHOPIFY_STORE_DOMAIN",l:"Shopify Store Domain",hint:"your-store.myshopify.com",st:"shopify",docs:"shopify.dev"},
-    {k:"CJ_API_KEY",l:"CJ Dropshipping API Key",hint:"xxxxxxxxxx",st:"cj",docs:"cjdropshipping.com"},
-    {k:"CJ_EMAIL",l:"CJ Dropshipping Email",hint:"your@email.com",st:"cj",docs:"cjdropshipping.com"},
-    {k:"SHIPBOB_TOKEN",l:"ShipBob API Token",hint:"xxxxxxxxxx",st:"shipbob",docs:"developer.shipbob.com"},
-  ];
-  const groups={required:{label:"Required",color:T.rose},meta:{label:"Meta Ads",color:"#1877F2"},tiktok:{label:"TikTok Ads",color:T.rose},shopify:{label:"Shopify",color:T.teal},cj:{label:"CJ Dropshipping",color:T.amber},shipbob:{label:"ShipBob",color:T.cyan}};
-  const [show,setShow]=useState({});
+  const FIELD_META={
+    anthropic:{apiKey:{l:"API Key",hint:"sk-ant-xxxx",docs:"console.anthropic.com"}},
+    shopify:{accessToken:{l:"Access Token",hint:"shpat_xxxxx",docs:"shopify.dev"},storeDomain:{l:"Store Domain",hint:"your-store.myshopify.com",docs:"shopify.dev"}},
+    meta:{accessToken:{l:"Access Token",hint:"EAAxxxxxxx",docs:"developers.facebook.com"},adAccountId:{l:"Ad Account ID",hint:"act_123456789",docs:"business.facebook.com"},pageId:{l:"Page ID",hint:"123456789",docs:"business.facebook.com"}},
+    tiktok:{accessToken:{l:"Access Token",hint:"xxxxxxxxxx",docs:"ads.tiktok.com/marketing_api"},advertiserId:{l:"Advertiser ID",hint:"1234567890",docs:"ads.tiktok.com"}},
+    cj:{apiKey:{l:"API Key",hint:"xxxxxxxxxx",docs:"cjdropshipping.com"},email:{l:"Email",hint:"you@example.com",docs:"cjdropshipping.com"}},
+    shipbob:{token:{l:"API Token",hint:"xxxxxxxxxx",docs:"developer.shipbob.com"}},
+  };
+  const COLORS={anthropic:T.primary,meta:"#1877F2",tiktok:T.rose,shopify:T.teal,cj:T.amber,shipbob:T.cyan};
+  const [data,setData]=useState(null);
+  const [form,setForm]=useState({});
+  const [saving,setSaving]=useState({});
+  const [savedMsg,setSavedMsg]=useState({});
+
+  const load=()=>api("/api/integrations").then(d=>setData(d.integrations??null)).catch(()=>{});
+  useEffect(()=>{load();},[]);
+
+  const setField=(type,field,val)=>setForm(f=>({...f,[type]:{...f[type],[field]:val}}));
+
+  const save=async(type)=>{
+    setSaving(s=>({...s,[type]:true}));setSavedMsg(s=>({...s,[type]:""}));
+    try{
+      const d=await api("/api/integrations",{type,fields:form[type]||{}});
+      if(d.error)throw new Error(d.error);
+      await load();
+      setForm(f=>({...f,[type]:{}}));
+      setSavedMsg(s=>({...s,[type]:"✓ Saved"}));
+    }catch(e){setSavedMsg(s=>({...s,[type]:"⚠️ "+e.message}));}
+    setSaving(s=>({...s,[type]:false}));
+  };
+
+  if(!data)return <Empty icon="⚙️" title="Loading settings…" spin/>;
+
   return <div>
-    <PHdr title="Settings" sub="API keys and integrations — edit these in your .env.local file"/>
-    <div style={{background:`${T.amber}0f`,border:`1px solid ${T.amber}30`,borderRadius:12,padding:"14px 18px",marginBottom:20}}>
-      <div style={{color:T.amber,fontWeight:700,fontSize:13,marginBottom:4}}>⚠️ How to set API keys</div>
-      <div style={{color:T.muted,fontSize:13,lineHeight:1.6}}>
-        Open <code style={{background:T.s2,padding:"1px 6px",borderRadius:4,color:T.teal}}>.env.local</code> in your project root and add your keys there. Never paste real keys into this UI — it's for reference only. After editing <code style={{background:T.s2,padding:"1px 6px",borderRadius:4,color:T.teal}}>.env.local</code>, restart the dev server or redeploy to Vercel.
-      </div>
-    </div>
-    {Object.entries(groups).map(([gKey,g])=><Card key={gKey} style={{marginBottom:14}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-        <Badge label={g.label} color={g.color} bg={`${g.color}18`}/>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {KEYS.filter(f=>f.st===gKey).map(f=><div key={f.k}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-            <Label c={f.l}/>
-            <a href={`https://${f.docs}`} target="_blank" rel="noopener noreferrer" style={{color:T.primary,fontSize:11,textDecoration:"none"}}>docs →</a>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <code style={{flex:1,background:T.s2,border:`1px solid ${T.dim}`,color:T.teal,borderRadius:8,padding:"8px 12px",fontSize:12,display:"block"}}>{show[f.k]?`process.env.${f.k}`:f.hint}</code>
-            <button onClick={()=>setShow(s=>({...s,[f.k]:!s[f.k]}))} style={{background:"none",border:`1px solid ${T.dim}`,color:T.muted,borderRadius:8,padding:"8px 12px",cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>{show[f.k]?"Hide":"Info"}</button>
-          </div>
-        </div>)}
-      </div>
-    </Card>)}
+    <PHdr title="Settings" sub="Connect your own accounts — each key is encrypted and used only for your account"/>
+    {Object.entries(FIELD_META).map(([type,fields])=>{
+      const info=data[type];if(!info)return null;
+      return <Card key={type} style={{marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <Badge label={info.label} color={COLORS[type]} bg={`${COLORS[type]}18`}/>
+          {savedMsg[type]&&<span style={{fontSize:11,color:savedMsg[type].startsWith("⚠️")?T.rose:T.teal,fontWeight:700}}>{savedMsg[type]}</span>}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>
+          {Object.entries(fields).map(([field,meta])=>{
+            const st=info.fields[field]||{};
+            return <div key={field}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                <Label c={meta.l}/>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {st.configured&&<Badge label="✓ Configured" color={T.teal} bg="rgba(0,200,150,.12)"/>}
+                  {!st.configured&&st.envFallback&&<Badge label="Shared fallback" color={T.amber} bg="rgba(245,166,35,.12)"/>}
+                  <a href={`https://${meta.docs}`} target="_blank" rel="noopener noreferrer" style={{color:T.primary,fontSize:11,textDecoration:"none"}}>docs →</a>
+                </div>
+              </div>
+              <input
+                type="password"
+                placeholder={st.configured?st.preview:meta.hint}
+                value={form[type]?.[field]??""}
+                onChange={e=>setField(type,field,e.target.value)}
+                style={{width:"100%",background:T.s2,border:`1px solid ${T.dim}`,color:T.text,borderRadius:8,padding:"8px 12px",fontSize:13,outline:"none"}}
+              />
+            </div>;
+          })}
+        </div>
+        <Btn label={saving[type]?"Saving…":"Save"} small onClick={()=>save(type)} disabled={saving[type]} color={COLORS[type]}/>
+      </Card>;
+    })}
     <Card>
       <div style={{color:T.text,fontWeight:700,fontSize:15,marginBottom:14}}>Agent Schedules</div>
       {[{ag:"Product Scout",s:"Every 6 hours",n:"in 2h 14m"},{ag:"Supplier Connect",s:"On demand",n:"—"},{ag:"Creative Studio",s:"On demand",n:"—"},{ag:"Ad Launch",s:"Real-time",n:"Always on"},{ag:"Analytics",s:"Every hour",n:"in 42m"},{ag:"Finance",s:"Daily at midnight",n:"in 6h"}].map(r=><div key={r.ag} style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingBottom:10,marginBottom:10,borderBottom:`1px solid ${T.border}`}}>
