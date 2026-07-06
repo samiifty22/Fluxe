@@ -13,3 +13,5 @@ dev.db
 .vercel
 .env*
 .claude/settings.local.json
+
+.env*
